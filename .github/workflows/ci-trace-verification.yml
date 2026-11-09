@@ -1,0 +1,16 @@
+name: CI Trace verification fixture
+on: [push]
+permissions:
+  contents: read
+jobs:
+  crlf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash ./scripts/check.sh
+  independent:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo 'Independent fixture: TypeScript TS2322'
+          exit 1
