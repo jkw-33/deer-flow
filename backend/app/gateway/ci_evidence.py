@@ -144,17 +144,23 @@ class GitHubCIEvidence:
             return ()
         return tuple(response.json())
 
-    async def read_source(self, reference: RunReference, sha: str, path: str) -> bytes:
+    async def read_source(self, reference: RunReference, sha: str, path: str, *, max_bytes: int = MAX_LOG_BYTES) -> bytes:
         if not re.fullmatch(r"[0-9a-f]{40}", sha) or any(segment in {"", ".", ".."} for segment in path.split("/")):
             raise ValueError("Expected an exact commit SHA and repository-relative path")
-        response = await self.client.get(
+        async with self.client.stream(
+            "GET",
             f"{API_ROOT}/repos/{reference.owner}/{reference.repository}/contents/{quote(path)}",
             params={"ref": sha},
             headers={**self.headers, "Accept": "application/vnd.github.raw+json"},
             follow_redirects=False,
-        )
-        response.raise_for_status()
-        return response.content
+        ) as response:
+            response.raise_for_status()
+            data = bytearray()
+            async for chunk in response.aiter_bytes():
+                if len(data) + len(chunk) > max_bytes:
+                    raise ValueError("Source exceeds the byte limit")
+                data.extend(chunk)
+            return bytes(data)
 
     async def _read_log(self, path: str) -> tuple[str | None, str]:
         async with self.client.stream("GET", API_ROOT + path, headers=self.headers, follow_redirects=False) as response:
@@ -188,3 +194,28 @@ class GitHubCIEvidence:
                 return None, "too_large"
             data.extend(chunk)
         return data.decode("utf-8-sig", errors="replace"), "available"
+
+
+def annotation_evidence(annotations, job_id):
+    """Keep bounded public check annotations with conservative credential redaction."""
+    result = []
+    for index, annotation in enumerate(annotations[:10], 1):
+        if not isinstance(annotation, dict):
+            continue
+        path = annotation.get("path")
+        line = annotation.get("start_line")
+        message = annotation.get("message")
+        if not isinstance(path, str) or type(line) is not int or not isinstance(message, str):
+            continue
+        message = re.sub(r"https?://[^\s]+", "[url]", message)
+        message = re.sub(r"(?i)\b(?:bearer|token|password|secret|api[_ -]?key)\b[^\n]*", "[redacted]", message)
+        message = re.sub(r"\b[A-Za-z0-9_+/=-]{24,}\b", "[redacted]", message)
+        result.append(
+            {
+                "id": f"job-{job_id}-annotation-{index}",
+                "path": " ".join(path.split())[:240],
+                "line": line,
+                "message": " ".join(message.split())[:500],
+            }
+        )
+    return result

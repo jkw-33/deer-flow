@@ -42,12 +42,6 @@ export default function DiagnosisLayout({
         </Link>
         <nav aria-label="CI Trace" className="flex items-center gap-4">
           <Link
-            href="/diagnoses/model"
-            className="text-sm text-[#aabbd6] hover:text-white"
-          >
-            模型设置
-          </Link>
-          <Link
             href="/diagnoses/pnpm-wasi-504"
             className="text-sm text-[#aabbd6] hover:text-white"
           >

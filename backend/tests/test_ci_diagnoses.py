@@ -183,9 +183,86 @@ def test_anonymous_browser_can_submit_and_replay_but_cannot_read_another_session
         path = f"/api/ci-diagnoses/{created.json()['id']}"
         assert browser.get(path).json()["status"] == "completed"
         assert "event: diagnosis" in browser.get(f"{path}/events?after=1").text
+        trace = browser.get(f"{path}/artifacts/trace.json").json()
+        assert trace["schema_version"] == 1
+        assert trace["scope"] == "diagnosis"
+        assert [event["kind"] for event in trace["events"]] == ["queued", "completed"]
+        assert all(event["recorded_at"] > 0 for event in trace["events"])
+        assert "github_binding" not in trace
+        report = browser.get(f"{path}/artifacts/report.txt")
+        assert report.status_code == 200
+        assert "Failed jobs: 0" in report.text
+        assert browser.get(f"{path}/artifacts/repair.diff").status_code == 404
         with TestClient(app, base_url="https://example.test") as other:
+            assert other.get(f"{path}/artifacts/trace.json").status_code == 404
+            assert other.get(f"{path}/artifacts/report.txt").status_code == 404
             assert other.get(path).status_code == 404
             assert other.get(f"{path}/events").status_code == 404
+
+
+@pytest.mark.parametrize("runner_error", [None, httpx.ConnectError, httpx.ReadTimeout])
+def test_verification_artifacts_follow_diagnosis_ownership(tmp_path, monkeypatch, runner_error):
+    monkeypatch.setattr(ci_diagnoses, "get_paths", lambda: SimpleNamespace(base_dir=tmp_path))
+
+    monkeypatch.setenv("CI_TRACE_RUNNER_URL", "http://runner.test")
+    monkeypatch.delenv("GITHUB_APP_ID", raising=False)
+    sha = "a" * 40
+    source = b"if true; then\r\n echo ok\r\nfi\r\n"
+
+    class Collector:
+        def __init__(self, *_):
+            pass
+
+        async def collect(self, reference, *, public_only, on_attempt, on_job):
+            assert public_only
+            await on_attempt({"conclusion": "failure"}, 1)
+            job = ci_diagnoses.JobEvidence({"id": 10}, "./check.sh: line 4: syntax error: unexpected end of file", "available", (sha,))
+            await on_job(job)
+            return SimpleNamespace(failed_jobs=[job])
+
+        async def read_source(self, reference, commit, path, *, max_bytes):
+            assert (commit, path) == (sha, "check.sh")
+            return source
+
+    monkeypatch.setattr(ci_diagnoses, "GitHubCIEvidence", Collector)
+
+    def check(_url, data, *_):
+        if runner_error:
+            raise runner_error("Runner unavailable")
+        return (2, 4) if data == source else (0, None)
+
+    monkeypatch.setattr(ci_diagnoses, "runner_check", check)
+    app = FastAPI()
+    app.add_middleware(AuthMiddleware)
+    app.add_middleware(CSRFMiddleware)
+    app.include_router(ci_diagnoses.router)
+    body = {"url": "https://github.com/acme/demo/actions/runs/42"}
+    with TestClient(app, base_url="https://example.test") as browser:
+        created = browser.post("/api/ci-diagnoses", json=body, headers={"Origin": "https://example.test"})
+        assert created.status_code == 202
+        path = f"/api/ci-diagnoses/{created.json()['id']}"
+        snapshot = browser.get(path).json()
+        assert snapshot["status"] == "completed"
+        event = next(event for event in snapshot["events"] if event["kind"] == "verification")
+        if runner_error:
+            assert event["status"] == "unavailable"
+            assert browser.get(f"{path}/artifacts/repair.diff").status_code == 404
+            return
+        assert event["status"] == "verified"
+        assert "patch" not in event
+        stream = browser.get(f"{path}/events").text
+        assert '"kind": "verification"' in stream
+        assert '"patch"' not in stream
+        artifact = f"{path}/artifacts/repair.diff"
+        response = browser.get(artifact)
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-store"
+        assert response.headers["content-disposition"] == 'attachment; filename="repair.diff"'
+        assert b"-if true; then\r\n" in response.content
+        assert "LF-only rerun exit: 0" in browser.get(f"{path}/artifacts/verification.log").text
+        assert f"{sha}:check.sh" in browser.get(f"{path}/artifacts/report.txt").text
+        with TestClient(app, base_url="https://example.test") as other:
+            assert other.get(artifact).status_code == 404
 
 
 def test_github_app_token_is_scoped_to_repository_and_read_permissions(monkeypatch):
@@ -253,3 +330,38 @@ def test_task_keeps_its_owner_cursor_and_pinned_attempt(tmp_path, monkeypatch):
         (3, "job"),
         (4, "completed"),
     ]
+
+
+def test_analysis_claim_is_session_scoped_and_persists_terminal_event(tmp_path, monkeypatch):
+    monkeypatch.setattr(ci_diagnoses, "get_paths", lambda: SimpleNamespace(base_dir=tmp_path))
+    task = ci_diagnoses._create("owner", parse_run_url("https://github.com/acme/demo/actions/runs/42"), deep=True)
+    task_id = task["id"]
+    lease = ci_diagnoses._claim(task_id, "owner")
+    ci_diagnoses._record(task_id, "owner", lease, "completed", failed_jobs=1)
+    started = {"kind": "started", "agent": "ci-diagnosis"}
+    assert not ci_diagnoses._analysis_event(task_id, "other", started, claim=True)
+    assert ci_diagnoses._analysis_event(task_id, "owner", started, claim=True)
+    assert not ci_diagnoses._analysis_event(task_id, "owner", started, claim=True)
+    assert ci_diagnoses._analysis_event(task_id, "owner", {"kind": "result", "text": "result"})
+    assert not ci_diagnoses._analysis_event(task_id, "owner", {"kind": "error"})
+    saved, _ = ci_diagnoses._read(task_id, "owner")
+    assert [event["kind"] for event in saved["analysis"]] == ["started", "result"]
+    assert ci_diagnoses._public_task(saved)["analysis_started"]
+    assert "analysis" not in ci_diagnoses._public_task(saved)
+
+
+def test_retry_claim_preserves_history_and_rejects_duplicate_retry(tmp_path, monkeypatch):
+    monkeypatch.setattr(ci_diagnoses, "get_paths", lambda: SimpleNamespace(base_dir=tmp_path))
+    task = ci_diagnoses._create("owner", parse_run_url("https://github.com/acme/demo/actions/runs/42"))
+    task_id = task["id"]
+    lease = ci_diagnoses._claim(task_id, "owner")
+    ci_diagnoses._record(task_id, "owner", lease, "completed", failed_jobs=1)
+    started = {"kind": "started"}
+    assert ci_diagnoses._analysis_event(task_id, "owner", started, claim=True)
+    assert ci_diagnoses._analysis_event(task_id, "owner", {"kind": "error", "reason": "timeout"})
+    assert ci_diagnoses._analysis_event(task_id, "owner", started, claim=True, attempt=2, retry_after=1)
+    assert not ci_diagnoses._analysis_event(task_id, "owner", started, claim=True, attempt=2, retry_after=1)
+    assert not ci_diagnoses._analysis_event(task_id, "owner", {"kind": "error"}, attempt=1)
+    assert ci_diagnoses._analysis_event(task_id, "owner", {"kind": "result"}, attempt=2)
+    saved, _ = ci_diagnoses._read(task_id, "owner")
+    assert [(event["analysis_attempt"], event["kind"]) for event in saved["analysis"]] == [(1, "started"), (1, "error"), (2, "started"), (2, "result")]

@@ -1,0 +1,27 @@
+{
+  "url": "https://github.com/jkw-33/deer-flow/actions/runs/42666056185",
+  "repository": "jkw-33/deer-flow",
+  "attempt": 1,
+  "failed_job_count": 2,
+  "jobs": [
+    {
+      "job_id": 129329871054,
+      "steps": [
+        "Run bash ./scripts/check.sh"
+      ]
+    },
+    {
+      "job_id": 129329871815
+    }
+  ],
+  "model": {
+    "analyzed_job_ids": [
+      129329871054,
+      129329871815
+    ],
+    "required_kinds": [
+      "observation",
+      "unknown"
+    ]
+  }
+}

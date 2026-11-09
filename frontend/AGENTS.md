@@ -77,7 +77,10 @@ Keep IM notification preferences viewer-fenced and separate from browser alerts;
 
 ## Architecture
 
-CI Trace pages live under `src/app/diagnoses/`. Keep public submission
+CI Trace pages live under `src/app/diagnoses/`. The default form submits public
+runs. Private submission lives on the GitHub connection page and model setup
+opens inline when deep analysis is selected. Completed diagnoses also link
+to the shared model settings. Keep public submission
 independent of DeerFlow login. Model settings expose provider and model
 metadata only. Private diagnosis requires an explicit GitHub connection,
 and its page must clear evidence when the Gateway reports access loss.
@@ -443,3 +446,14 @@ and attachment buttons share the picker.
 ### Web model provider presets
 
 Settings → Models obtains provider form metadata from the admin-only backend `/api/managed-models/providers`; do not copy endpoints, protocols or adapter maps into the UI. New models need only provider, API key and arbitrary model ID, with server-generated stable names. Custom endpoint fields and legacy edits stay supported. Provider/endpoint changes clear test results and saved-key reuse; omitted keys retain only the same connection. Capability overrides belong in Advanced settings. Successful saves/toggles invalidate both managed-model queries and MODELS_QUERY_KEY so existing chat/Agent selectors refresh. Keep locale text and administrator/static-mode restrictions aligned.
+
+Render CI Trace verification inline in the existing SSE timeline. Distinguish
+the original CI conclusion from the scoped CRLF check result, and keep
+artifact links scoped to the diagnosis.
+Show delegated model investigation progress separately from the original CI result.
+
+CI Trace pages show event timestamps when available. Model analysis exports
+its persisted stream separately from the diagnosis trace.
+
+CI Trace model findings link to Job and annotation IDs in the evidence timeline.
+Send a retry only after a user requests it from a failed analysis.

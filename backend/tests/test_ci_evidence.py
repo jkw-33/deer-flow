@@ -78,3 +78,10 @@ def test_log_redirect_does_not_forward_credentials():
             return await GitHubCIEvidence(client, "gh-test")._read_log("/test")
 
     assert asyncio.run(run()) == ("failed\r\n", "available")
+
+
+def test_public_annotation_evidence_bounds_and_redacts():
+    from app.gateway.ci_evidence import annotation_evidence
+
+    annotations = ({"path": "src/check.py", "start_line": 12, "message": "failed at https://user:pass@example.test?key=hidden\nAPI key: do-not-expose"},)
+    assert annotation_evidence(annotations, 42) == [{"id": "job-42-annotation-1", "path": "src/check.py", "line": 12, "message": "failed at [url] [redacted]"}]

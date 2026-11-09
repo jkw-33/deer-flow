@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { DiagnosisForm } from "../diagnosis-form";
+
 const endpoint = "/api/ci-diagnoses/github";
 type Connection = { available: boolean; login: string | null };
 
@@ -83,6 +85,7 @@ export default function GitHubConnectionPage() {
           返回诊断首页
         </Link>
       </div>
+      {connection?.login && <DiagnosisForm privateRun />}
       <p role="status" className="mt-4 text-sm text-[#aabbd6]">
         {notice}
       </p>

@@ -40,6 +40,31 @@ DeerFlow is a LangGraph-based AI super agent with sandbox execution, persistent 
 
 ## CI Trace
 
+Download a versioned diagnosis trace from a run page to inspect event order,
+recording timestamps, evidence availability and verification outcomes.
+Model analysis exposes a separate download with the selected model, evidence reads
+and visible output. Its events are stored with the diagnosis and expire with it.
+A diagnosis claims each analysis attempt in SQLite. Refreshing and reconnecting
+replays the latest attempt. An explicit retry after a failure uses the same
+evidence and appends a new attempt to the export. The agent can read structured evidence and bounded error
+markers assigned to its Job. Both exports omit credentials and raw source.
+
+Evaluate a saved diagnosis against a reference case from the repository root.
+
+```bash
+python scripts/evaluate_ci_trace.py trace.json contracts/ci-trace-pnpm-vale.json
+```
+
+The example expects attempt 1 of pnpm run 42583599573. The evaluator reports
+individual checks and elapsed time, and exits nonzero when an assertion fails.
+Pass `--model-trace model-trace.json` to also check findings, evidence references,
+Job coverage and expected terms. The model section reports tool calls and
+elapsed time. Run both modes on the same diagnosis to compare results.
+The multi-Job reference is `contracts/ci-trace-multi-job.json`. Reference
+terms and evidence IDs support regression checks. Root-cause judgment still
+requires comparing the finding with its evidence.
+
+
 CI Trace accepts GitHub Actions run links without login and streams
 browser-session-scoped progress from `/api/ci-diagnoses`. The HttpOnly
 session cookie and new tasks expire after 24 hours. Live collection
@@ -52,7 +77,8 @@ that repository. Keep the private key server-side. Where no installation is
 available, the optional server-side `CI_TRACE_GITHUB_TOKEN` is used, then
 anonymous reads. Local tasks and their
 event cursors are stored in `ci-trace.sqlite3` under the DeerFlow data directory.
-The optional model settings page tests and encrypts a user-supplied key for
+Completed diagnoses offer a downloadable evidence report even when verification
+is disabled. The optional model settings page tests and encrypts a user-supplied key for
 DeepSeek, OpenAI, Gemini, OpenRouter, SiliconFlow, or a custom OpenAI-compatible
 service. Custom Base URLs must match an entry in the comma-separated
 `CI_TRACE_MODEL_BASE_URLS` server environment variable, for example
@@ -634,3 +660,49 @@ See the [LICENSE](../LICENSE) file in the project root.
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+
+### CI Trace CRLF verification
+
+Run the independent runner on a trusted Docker host using
+`python backend/ci_trace_runner.py --token-file /path/to/token --image IMAGE`.
+The token file must contain a randomly generated secret of at least 32 ASCII
+letters or digits. The runner binds to loopback by default. For a remote
+Gateway, use a private link and a TLS proxy. Keep the endpoint off public ingress.
+Set `CI_TRACE_RUNNER_URL` to the runner base URL and
+`CI_TRACE_RUNNER_TOKEN_FILE` to a readable copy of the token on the Gateway.
+The Gateway does not require Docker access.
+
+The local image must contain `/bin/bash` and `/usr/local/bin/node`.
+The runner starts network-disabled, read-only containers without repository
+mounts. Bash syntax checks use `bash -n`. Node lookup accepts one allowed
+`node` command and an optional shebang, and supplies an empty module on tmpfs.
+If the runner is unreachable or times out, the diagnosis still completes and
+marks verification unavailable. Downloads expire with the diagnosis session.
+
+For GitHub-hosted verification, place `docker/ci-trace-actions/ci-trace-verify.yml`
+under `.github/workflows/` in a dedicated verification repository's default
+branch. Copy the adjacent `ci_actions_worker.py` and
+`app/gateway/ci_verification.py` to that repository's root.
+
+Configure the Gateway with these environment variables.
+
+- `CI_TRACE_ACTIONS_REPOSITORY` is the dedicated repository as `owner/repo`.
+- `CI_TRACE_ACTIONS_REF` selects the trusted workflow branch or tag and defaults to `main`.
+- `CI_TRACE_ACTIONS_SOURCE_REPOS` lists allowed public source repositories,
+  separated by commas. An empty list disables Actions dispatch.
+- `CI_TRACE_ACTIONS_TOKEN_FILE` points to a local secret file containing a
+  fine-grained token with Actions write access scoped to the verification repository.
+  Source CI log access still uses the existing source GitHub credentials.
+
+The Gateway allows up to six dispatch reservations per hour per task database,
+one per diagnosis, and waits up to five minutes. Interrupted or timed-out
+requests are not automatically dispatched again. The worker fetches public
+source by commit and verifies the hash. It emits a bounded JSON record in
+the workflow job log, and the Gateway generates the downloadable patch
+locally. GitHub-hosted verification takes precedence for allowlisted sources.
+
+The public model investigation uses the session's configured OpenAI-compatible
+provider with function calling enabled. It reads structured evidence through a
+single scoped tool. For multiple failed jobs it delegates up to three independent
+investigations and synthesizes their findings. The HTTP endpoint supports NDJSON
+progress. Private tasks continue to use basic diagnosis.

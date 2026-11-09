@@ -79,7 +79,7 @@ def _is_ci_trace_route(method: str, path: str) -> bool:
         return method == "POST"
     if method == "POST":
         return path.rstrip("/") == "/api/ci-diagnoses"
-    return method == "GET" and re.fullmatch(r"/api/ci-diagnoses/[0-9a-fA-F-]{36}(?:/events)?/?", path) is not None
+    return method == "GET" and re.fullmatch(r"/api/ci-diagnoses/[0-9a-fA-F-]{36}(?:/events|/artifacts/(?:report[.]txt|repair[.]diff|verification[.]log|(?:model-)?trace[.]json))?/?", path) is not None
 
 
 class AuthMiddleware(BaseHTTPMiddleware):

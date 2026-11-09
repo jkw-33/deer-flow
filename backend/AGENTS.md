@@ -337,3 +337,29 @@ See `docs/` directory for detailed documentation:
 - [PATH_EXAMPLES.md](docs/PATH_EXAMPLES.md) - Path types and usage
 - [summarization.md](docs/summarization.md) - Context summarization
 - [plan_mode_usage.md](docs/plan_mode_usage.md) - Plan mode with TodoList
+
+CI Trace verification lives in `app/gateway/ci_verification.py`. Keep the
+original source bytes for the baseline and limit the rerun to CRLF conversion.
+Artifact routes use diagnosis ownership and repository access checks. Keep
+patch contents out of snapshots and SSE.
+
+Keep Node lookup verification restricted to the admitted one-command grammar.
+CI Trace model investigations expose only job-scoped structured evidence.
+
+CI Trace Gateway uses the authenticated runner protocol in
+`app/gateway/ci_runner_client.py`. Run `ci_trace_runner.py` separately on a
+Docker host. Keep the runner token outside repository workspaces and keep the
+Gateway free of Docker socket mounts.
+
+GitHub-hosted CI Trace verification uses a dedicated operator-controlled
+workflow. Pass only public source coordinates and a source hash. Reserve
+dispatches in the diagnosis database before submission to bound usage and
+prevent duplicate submissions after worker recovery.
+
+CI Trace exports diagnosis events as versioned JSON through the existing
+owner-scoped artifact route. Preserve event sequence and optional timestamps
+for older records. Keep credentials and patch bodies out of the event export.
+
+CI diagnosis deep mode and the result-page action share persisted analysis attempts. Claim the analysis in SQLite before invoking a model, and replay
+its events on reconnect. A retry must name the last failed attempt. Log excerpts contain bounded, allowlisted error
+markers and the Agent may read only the assigned Job evidence.

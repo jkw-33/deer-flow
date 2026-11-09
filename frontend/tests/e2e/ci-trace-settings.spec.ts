@@ -34,7 +34,9 @@ test("public diagnosis stays accessible and model settings can be cleared", asyn
   });
   await page.goto("/diagnoses");
   await expect(page.getByRole("button", { name: "开始诊断" })).toBeVisible();
-  await page.getByRole("link", { name: "模型设置" }).click();
+  await expect(page.getByRole("link", { name: "模型设置" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "连接 GitHub" })).toHaveCount(0);
+  await page.goto("/diagnoses/model");
   await page.getByLabel("模型名").fill("test-model");
   await page.getByLabel("API Key").fill("test-key");
   await page.getByRole("button", { name: "测试并保存" }).click();

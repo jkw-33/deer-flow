@@ -42,7 +42,7 @@ export default function DiagnosesPage() {
             <span className="text-[#91d6ff]">沿着证据查下去。</span>
           </h1>
           <p className="mx-auto mt-6 max-w-lg text-base leading-relaxed text-pretty text-[#aabbd6] sm:text-lg">
-            从失败步骤追到原始日志，再回到那次运行真正执行的源码。
+            查看失败步骤、可取得的证据和下一步建议。无需登录或配置模型。
           </p>
           <DiagnosisForm />
         </div>

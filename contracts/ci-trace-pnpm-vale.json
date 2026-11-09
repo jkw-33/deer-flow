@@ -1,0 +1,27 @@
+{
+  "url": "https://github.com/pnpm/pnpm/actions/runs/42583599573",
+  "repository": "pnpm/pnpm",
+  "attempt": 1,
+  "status": "completed",
+  "failed_job_count": 1,
+  "jobs": [
+    {
+      "job_id": 129047950703,
+      "steps": [
+        "Install Vale"
+      ]
+    }
+  ],
+  "model": {
+    "analyzed_job_ids": [
+      129047950703
+    ],
+    "required_kinds": [
+      "observation",
+      "unknown"
+    ],
+    "required_terms": [
+      "Install Vale"
+    ]
+  }
+}

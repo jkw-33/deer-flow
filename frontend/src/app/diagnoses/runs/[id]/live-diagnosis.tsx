@@ -4,8 +4,12 @@ import { useEffect, useState } from "react";
 
 import { ModelAdvice } from "./model-advice";
 
-type RunEvent =
+type RunEvent = { recorded_at?: number } & RunEventData;
+
+type RunEventData =
   | { seq: number; kind: "queued" }
+  | { seq: number; kind: "collection_started"; access: string }
+  | { seq: number; kind: "verification_skipped"; reason: string }
   | { seq: number; kind: "attempt"; attempt: number; conclusion: string | null }
   | {
       seq: number;
@@ -16,14 +20,43 @@ type RunEvent =
       log_state: string;
       checkout_shas: string[];
       annotation_count: number;
+      annotations?: {
+        id: string;
+        path: string;
+        line: number;
+        message: string;
+      }[];
+      log_excerpt?: string[];
       advice?: string[];
       http_errors: string[];
     }
+  | {
+      seq: number;
+      kind: "verification_started";
+      mode?: "node_lookup" | "bash_syntax";
+      path: string;
+      sha: string;
+    }
+  | {
+      seq: number;
+      kind: "verification";
+      path: string;
+      sha: string;
+      mode?: "node_lookup" | "bash_syntax";
+      status: "verified" | "unconfirmed" | "unavailable";
+      source_sha256?: string;
+      baseline?: number;
+      error_line?: number;
+      rerun?: number;
+    }
+  | { seq: number; kind: "verification_dispatched"; run_id: number }
   | { seq: number; kind: "completed"; failed_jobs: number }
   | { seq: number; kind: "failed"; reason: string };
 
 type Task = {
   private?: boolean;
+  deep?: boolean;
+  analysis_started?: boolean;
   url: string;
   repository: string;
   status: "queued" | "running" | "completed" | "failed";
@@ -38,6 +71,19 @@ const failures: Record<string, string> = {
   unexpected_response: "GitHub 返回了无法处理的数据。",
 };
 
+const collectionAccess: Record<string, string> = {
+  private_authorized: "使用已授权的 GitHub 账号访问私有仓库",
+  public_authenticated: "使用服务端凭据读取公开仓库",
+  public_anonymous: "匿名读取公开仓库",
+};
+
+const skipReasons: Record<string, string> = {
+  private_run: "当前验证仅覆盖公开仓库。",
+  disabled: "当前部署未为该仓库启用自动验证。",
+  no_supported_candidate: "现有证据中未找到可自动验证的脚本。",
+  no_failed_jobs: "此轮运行没有失败 Job。",
+};
+
 const logStates: Record<string, string> = {
   available: "已读取日志",
   unavailable: "完整日志不可用",
@@ -50,10 +96,27 @@ function eventTitle(event: RunEvent) {
   switch (event.kind) {
     case "queued":
       return "收到诊断请求";
+    case "collection_started":
+      return "开始采集 GitHub 证据";
+    case "verification_skipped":
+      return "未执行自动验证";
     case "attempt":
       return `固定为第 ${event.attempt} 次运行`;
     case "job":
       return event.name;
+    case "verification_started":
+      return event.mode === "node_lookup"
+        ? "开始 Node 模块查找验证"
+        : "开始 Bash 语法验证";
+    case "verification_dispatched":
+      return `GitHub 验证任务 #${event.run_id} 已提交`;
+    case "verification":
+      if (event.status === "verified")
+        return event.mode === "node_lookup"
+          ? "已验证 · LF 副本通过 Node 模块查找"
+          : "已验证 · LF 副本通过 Bash 语法检查";
+      if (event.status === "unavailable") return "验证受限";
+      return "换行原因未确认";
     case "completed":
       return "证据采集完成";
     case "failed":
@@ -150,7 +213,11 @@ export function LiveDiagnosis({ id }: { id: string }) {
               ? "证据采集完成"
               : task.status === "failed"
                 ? "采集受阻"
-                : "正在采集证据…")}
+                : ["verification_started", "verification_dispatched"].includes(
+                      task.events.at(-1)?.kind ?? "",
+                    )
+                  ? "正在验证 CRLF…"
+                  : "正在采集证据…")}
       </p>
       {task && (
         <section aria-labelledby="live-trace" className="mt-12">
@@ -159,13 +226,37 @@ export function LiveDiagnosis({ id }: { id: string }) {
           </h2>
           <ol className="divide-y divide-[#25334b] border-y border-[#25334b]">
             {task.events.map((event) => (
-              <li key={event.seq} className="trace-enter min-w-0 py-4">
+              <li
+                key={event.seq}
+                id={event.kind === "job" ? `job-${event.job_id}` : undefined}
+                className="trace-enter min-w-0 py-4"
+              >
                 <h3 className="flex gap-3 text-sm font-medium">
                   <span className="font-mono text-[#91d6ff]">
                     {String(event.seq).padStart(2, "0")}
                   </span>
                   {eventTitle(event)}
+                  {event.recorded_at !== undefined && (
+                    <time
+                      className="ml-auto text-xs font-normal text-[#aabbd6]"
+                      dateTime={new Date(
+                        event.recorded_at * 1000,
+                      ).toISOString()}
+                    >
+                      {new Date(event.recorded_at * 1000).toLocaleTimeString()}
+                    </time>
+                  )}
                 </h3>
+                {event.kind === "collection_started" && (
+                  <p className="mt-2 pl-8 text-sm text-[#aabbd6]">
+                    {collectionAccess[event.access]}
+                  </p>
+                )}
+                {event.kind === "verification_skipped" && (
+                  <p className="mt-2 pl-8 text-sm text-[#aabbd6]">
+                    {skipReasons[event.reason]}
+                  </p>
+                )}
                 {event.kind === "attempt" && (
                   <p className="mt-2 pl-8 text-sm text-[#aabbd6]">
                     运行结论 · {event.conclusion ?? "尚未结束"}
@@ -181,8 +272,71 @@ export function LiveDiagnosis({ id }: { id: string }) {
                     已定位 {event.failed_jobs} 个失败 Job。
                   </p>
                 )}
-                {event.kind === "job" && (
+                {event.kind === "verification_started" && (
+                  <p className="mt-2 pl-8 text-sm break-all text-[#aabbd6]">
+                    {event.path} · {event.sha}
+                  </p>
+                )}
+                {event.kind === "verification" && (
                   <details className="mt-2 pl-8 text-sm text-[#aabbd6]">
+                    <summary className="cursor-pointer">查看验证和下载</summary>
+                    <div className="mt-3 space-y-2">
+                      <p className="font-mono break-all">
+                        {event.sha}:{event.path}
+                      </p>
+                      {event.source_sha256 && (
+                        <p className="font-mono break-all">
+                          原始字节 SHA-256 · {event.source_sha256}
+                        </p>
+                      )}
+                      <p>环境 · 隔离 Linux 容器</p>
+                      <p>
+                        检查 ·{" "}
+                        <code>
+                          {event.mode === "node_lookup"
+                            ? "bash --noprofile --norc -e -s"
+                            : "bash --noprofile --norc -n -s"}
+                        </code>
+                      </p>
+                      {event.mode === "node_lookup" && (
+                        <p>
+                          原始脚本启动
+                          Node，目标模块由空文件夹具提供。验证范围为模块路径解析。
+                        </p>
+                      )}
+                      <p>原始字节退出码 · {event.baseline ?? "未记录"}</p>
+                      {event.error_line != null && (
+                        <p>语法错误行 · {event.error_line}</p>
+                      )}
+                      <p>仅替换 CRLF 后退出码 · {event.rerun ?? "未运行"}</p>
+                      <ul className="flex flex-wrap gap-x-4 text-[#91d6ff]">
+                        <li>
+                          <a
+                            className="inline-flex min-h-11 items-center underline"
+                            href={`/api/ci-diagnoses/${id}/artifacts/verification.log`}
+                          >
+                            验证日志
+                          </a>
+                        </li>
+                        {event.status === "verified" && (
+                          <li>
+                            <a
+                              className="inline-flex min-h-11 items-center underline"
+                              href={`/api/ci-diagnoses/${id}/artifacts/repair.diff`}
+                            >
+                              最小补丁
+                            </a>
+                          </li>
+                        )}
+                      </ul>
+                    </div>
+                  </details>
+                )}
+                {event.kind === "job" && (
+                  <details
+                    open={Boolean(event.annotations?.length)}
+                    className="mt-2 pl-8 text-sm text-[#aabbd6]"
+                  >
                     <summary className="cursor-pointer">
                       {logStates[event.log_state] ?? "日志不可用"}
                     </summary>
@@ -203,6 +357,23 @@ export function LiveDiagnosis({ id }: { id: string }) {
                       {event.annotation_count > 0 && (
                         <p>GitHub 检查注释 · {event.annotation_count} 条</p>
                       )}
+                      {event.annotations?.map((annotation) => (
+                        <div
+                          key={annotation.id}
+                          id={annotation.id}
+                          className="rounded border border-[#25334b] p-2 break-words"
+                        >
+                          <p className="font-mono">
+                            {annotation.path}:{annotation.line}
+                          </p>
+                          <p>{annotation.message}</p>
+                        </div>
+                      ))}
+                      {event.log_excerpt?.map((marker) => (
+                        <p key={marker} className="font-mono">
+                          {marker}
+                        </p>
+                      ))}
                       <a
                         className="inline-block text-[#91d6ff] underline underline-offset-4"
                         href={`${task.url}/job/${event.job_id}`}
@@ -231,10 +402,30 @@ export function LiveDiagnosis({ id }: { id: string }) {
           </ol>
         </section>
       )}
+      {task && (
+        <a
+          href={`/api/ci-diagnoses/${id}/artifacts/trace.json`}
+          className="mt-4 mr-4 inline-flex min-h-11 items-center text-sm text-[#91d6ff] underline"
+        >
+          下载运行轨迹（JSON）
+        </a>
+      )}
+      {task?.status === "completed" && (
+        <a
+          href={`/api/ci-diagnoses/${id}/artifacts/report.txt`}
+          className="mt-4 inline-flex min-h-11 items-center text-sm text-[#91d6ff] underline"
+        >
+          下载诊断报告
+        </a>
+      )}
       {!task?.private &&
         task?.status === "completed" &&
         task.events.some((event) => event.kind === "job") && (
-          <ModelAdvice id={id} />
+          <ModelAdvice
+            key={id}
+            id={id}
+            autoStart={task.deep === true || task.analysis_started === true}
+          />
         )}
     </main>
   );

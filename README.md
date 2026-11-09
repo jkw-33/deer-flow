@@ -23,6 +23,21 @@ repositories can be diagnosed without signing in. Rule-based suggestions
 work without a model. Optional browser-session model settings support
 DeepSeek, OpenAI, Gemini, OpenRouter, SiliconFlow, and server-allowlisted
 OpenAI-compatible services. Private runs require GitHub App user authorization.
+Public diagnoses need only a GitHub Actions run link and provide a downloadable
+report and a machine-readable trace. Choose deep analysis on the home page to configure a model and run the CI diagnosis agent automatically after evidence collection. Completed public diagnoses also offer deeper analysis. Private
+diagnoses are available from the dedicated GitHub connection page.
+
+An opt-in independent runner or GitHub Actions Job checks Bash syntax and Node module lookup failures
+when the job log identifies a single script and checkout candidate. It
+compares the original bytes with an LF-only copy and provides a report,
+verification log, and a patch when the check passes. Public diagnoses
+can also run a read-only model investigation that delegates distinct
+failed jobs and combines the results.
+
+Public check annotations and model citations link to evidence in the run
+timeline. A failed model analysis can be retried from the same diagnosis.
+The analysis trace preserves each attempt.
+
 See [CI Trace setup](backend/README.md#ci-trace) for the server configuration.
 
 ## Official Website
