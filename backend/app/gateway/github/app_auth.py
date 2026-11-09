@@ -223,6 +223,43 @@ async def mint_installation_token(
         return fresh.token
 
 
+async def mint_repository_read_token(
+    client: httpx.AsyncClient,
+    *,
+    owner: str,
+    repository: str,
+) -> str | None:
+    """Mint a CI Trace token restricted to one installed repository."""
+    headers = {
+        "Authorization": f"Bearer {mint_app_jwt()}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    installation = await client.get(
+        f"{_GITHUB_API_BASE}/repos/{owner}/{repository}/installation",
+        headers=headers,
+        follow_redirects=False,
+    )
+    if installation.status_code == 404:
+        return None
+    installation.raise_for_status()
+    data = installation.json()
+    if data.get("suspended_at"):
+        return None
+    installation_id = int(data["id"])
+    response = await client.post(
+        f"{_GITHUB_API_BASE}/app/installations/{installation_id}/access_tokens",
+        headers=headers,
+        json={
+            "repositories": [repository],
+            "permissions": {"actions": "read", "checks": "read", "contents": "read"},
+        },
+        follow_redirects=False,
+    )
+    response.raise_for_status()
+    return response.json()["token"]
+
+
 def _clear_token_cache_for_tests() -> None:
     """Drop every cached token. Tests reach for this between cases."""
     _token_cache.clear()

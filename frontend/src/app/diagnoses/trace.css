@@ -1,0 +1,53 @@
+.trace-site :focus-visible {
+  outline: 2px solid #91d6ff;
+  outline-offset: 4px;
+}
+
+.trace-grid {
+  background:
+    radial-gradient(ellipse at 50% 43%, #183553 0, transparent 58%),
+    radial-gradient(#526d93 0.7px, transparent 0.7px);
+  background-size:
+    auto,
+    24px 24px;
+  mask-image: radial-gradient(ellipse at center, black 0%, transparent 76%);
+  opacity: 0.58;
+}
+
+.trace-signal {
+  stroke-dasharray: 1;
+  animation: trace-draw 1.8s ease-out both;
+}
+
+.trace-enter {
+  animation: trace-enter 600ms ease-out both;
+}
+
+@keyframes trace-draw {
+  from {
+    stroke-dashoffset: 1;
+    opacity: 0;
+  }
+  to {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+@keyframes trace-enter {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trace-enter,
+  .trace-signal {
+    animation: none;
+  }
+}

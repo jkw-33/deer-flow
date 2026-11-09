@@ -31,6 +31,18 @@ live in `tests/`, `docs/`, and `scripts/benchmark/` respectively. Module-local
 
 ## Important Development Guidelines
 
+CI Trace evidence collection lives in `app/gateway/ci_evidence.py`. Pin the
+GitHub Actions attempt before reading jobs. Treat checkout hashes parsed from
+logs as evidence candidates, and fetch source at an explicitly selected
+commit. Keep job metadata when logs are unavailable, and never send GitHub
+credentials to the redirected log host.
+The live CI Trace routes in `app/gateway/routers/ci_diagnoses.py` are
+anonymous-session-scoped and currently support public repositories. The
+submission endpoint checks browser origin before issuing its session cookie.
+The local SQLite
+store preserves event cursors and worker leases. Do not serialize raw job
+logs or a GitHub token into the task payload or SSE.
+
 ### Documentation Update Policy
 Every code change must keep docs accurate and current: update `README.md` for
 user-facing behavior and the relevant `AGENTS.md` for development changes.

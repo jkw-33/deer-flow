@@ -10,6 +10,7 @@ Fine-grained permission checks remain in authz.py decorators.
 """
 
 import logging
+import re
 from collections.abc import Callable
 
 from fastapi import HTTPException, Request, Response
@@ -67,6 +68,20 @@ def _is_public(path: str) -> bool:
     return any(path.startswith(prefix) for prefix in _PUBLIC_PATH_PREFIXES)
 
 
+def _is_ci_trace_route(method: str, path: str) -> bool:
+    if path.rstrip("/") == "/api/ci-diagnoses/github":
+        return method in {"GET", "POST", "DELETE"}
+    if path.rstrip("/") == "/api/ci-diagnoses/github/callback":
+        return method == "GET"
+    if path.rstrip("/") == "/api/ci-diagnoses/model":
+        return method in {"GET", "PUT", "DELETE"}
+    if path.rstrip("/") == "/api/ci-diagnoses/model/analyze":
+        return method == "POST"
+    if method == "POST":
+        return path.rstrip("/") == "/api/ci-diagnoses"
+    return method == "GET" and re.fullmatch(r"/api/ci-diagnoses/[0-9a-fA-F-]{36}(?:/events)?/?", path) is not None
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     """Strict auth gate: reject requests without a valid session.
 
@@ -91,7 +106,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        if _is_public(get_request_route_path(request)):
+        path = get_request_route_path(request)
+        if _is_public(path) or _is_ci_trace_route(request.method, path):
             return await call_next(request)
 
         internal_user = None

@@ -38,6 +38,38 @@ DeerFlow is a LangGraph-based AI super agent with sandbox execution, persistent 
 
 ---
 
+## CI Trace
+
+CI Trace accepts GitHub Actions run links without login and streams
+browser-session-scoped progress from `/api/ci-diagnoses`. The HttpOnly
+session cookie and new tasks expire after 24 hours. Live collection
+supports public repositories. To authenticate reads for an installed repository,
+configure `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY_PATH` (a server-readable
+PEM file) or `GITHUB_APP_PRIVATE_KEY`. Install the App on the selected
+repository with Actions, Checks, and Contents read access. CI Trace looks up
+the repository installation and requests a short-lived read token scoped to
+that repository. Keep the private key server-side. Where no installation is
+available, the optional server-side `CI_TRACE_GITHUB_TOKEN` is used, then
+anonymous reads. Local tasks and their
+event cursors are stored in `ci-trace.sqlite3` under the DeerFlow data directory.
+The optional model settings page tests and encrypts a user-supplied key for
+DeepSeek, OpenAI, Gemini, OpenRouter, SiliconFlow, or a custom OpenAI-compatible
+service. Custom Base URLs must match an entry in the comma-separated
+`CI_TRACE_MODEL_BASE_URLS` server environment variable, for example
+`https://gateway.example/v1`. Use a trusted endpoint reachable from the
+Gateway and omit `/chat/completions`. Rule-based advice works without a key.
+Model advice is an explicit action on a completed public task and sends only
+the job summary to the selected provider.
+
+For private repositories, configure `CI_TRACE_GITHUB_CLIENT_ID`,
+`CI_TRACE_GITHUB_CLIENT_SECRET`, and `CI_TRACE_GITHUB_CALLBACK_URL` for the
+same GitHub App. Register the exact callback URL ending in
+`/api/ci-diagnoses/github/callback`. Users connect their GitHub account and
+select the private-repository option when submitting a run. The server uses
+an expiring GitHub App user token and checks access again before returning
+private tasks or events. This flow does not send private task data to model
+providers.
+
 ## Core Components
 
 ### Lead Agent

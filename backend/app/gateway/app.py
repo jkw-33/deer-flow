@@ -30,6 +30,7 @@ from app.gateway.routers import (
     capabilities,
     channel_connections,
     channels,
+    ci_diagnoses,
     console,
     features,
     feedback,
@@ -1373,6 +1374,7 @@ This gateway provides runtime endpoints for agent runs plus custom endpoints for
 
     # Thread cleanup API is mounted at /api/threads/{thread_id}
     app.include_router(threads.router)
+    app.include_router(ci_diagnoses.router)
 
     # Per-user activity feed (own prefix, so /api/threads/{thread_id} never captures it)
     app.include_router(thread_activity.router)

@@ -77,6 +77,13 @@ Keep IM notification preferences viewer-fenced and separate from browser alerts;
 
 ## Architecture
 
+CI Trace pages live under `src/app/diagnoses/`. Keep public submission
+independent of DeerFlow login. Model settings expose provider and model
+metadata only. Private diagnosis requires an explicit GitHub connection,
+and its page must clear evidence when the Gateway reports access loss.
+Only show the Base URL input for custom providers. The Gateway validates
+the configured URL at connection test and on each model request.
+
 Model controls: `core/models/use-model-control` + HumanInputCard.
 
 Knowledge evidence is parsed in `core/citations/sources.ts` from version-1
