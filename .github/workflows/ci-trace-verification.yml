@@ -11,6 +11,5 @@ jobs:
   independent:
     runs-on: ubuntu-latest
     steps:
-      - run: |
-          echo 'Independent fixture: TypeScript TS2322'
-          exit 1
+      - name: Check independent Node assertion
+        run: node -e "require('node:assert/strict').equal(Number('42'), 42)"
