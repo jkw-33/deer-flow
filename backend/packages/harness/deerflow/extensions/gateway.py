@@ -53,7 +53,7 @@ _HOST_PUBLIC_EXACT_PATHS = frozenset(
         "/api/v1/auth/providers",
     }
 )
-_HOST_CSRF_EXEMPT_EXACT_PATHS = frozenset({"/api/v1/auth/me"})
+_HOST_CSRF_EXEMPT_EXACT_PATHS = frozenset({"/api/v1/auth/me", "/api/ci-diagnoses", "/api/ci-diagnoses/model", "/api/ci-diagnoses/model/analyze", "/api/ci-diagnoses/github"})
 _CSRF_STATE_CHANGING_METHODS = frozenset({"POST", "PUT", "DELETE", "PATCH"})
 _STANDARD_CONVERTOR_REGEXES = {
     "str": "[^/]+",
@@ -299,6 +299,8 @@ def _router_routes(router: Any) -> list[_RouteClaim]:
                 raise TypeError(f"contributed route {claim.path} can enter a host public namespace")
             if enters_public_exact_path or enters_csrf_exact_path:
                 raise TypeError(f"contributed route {claim.path} can enter a host-reserved exact path")
+            if _claim_can_enter_prefix(claim, "/api/ci-diagnoses/"):
+                raise TypeError(f"contributed route {claim.path} can enter the host-reserved CI Trace namespace")
             claims.append(claim)
     return claims
 

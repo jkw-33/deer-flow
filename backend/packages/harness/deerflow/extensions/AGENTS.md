@@ -389,7 +389,8 @@ WebSocket routes are rejected until the host can supply authentication and Origi
 Because `include_router()` recompiles contributed routes, preflight projects the converter
 registry at include time. Nonstandard converters fail closed against reserved security
 paths but otherwise prove a shadow only when their normalized matchers are identical.
-Host authentication- and CSRF-exempt paths are reserved, and contributed Mounts, unsupported
+Host authentication- and CSRF-exempt paths are reserved, including the CI Trace
+`/api/ci-diagnoses` namespace. Contributed Mounts, unsupported
 route items, startup/shutdown hooks, and custom router lifespans are rejected; lifetime
 resources must use `ExtensionService`. Auth and CSRF classify
 `get_request_route_path(request)`, the same root-path-adjusted ASGI path Starlette routes

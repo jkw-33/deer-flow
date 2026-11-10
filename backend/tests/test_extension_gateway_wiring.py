@@ -707,6 +707,9 @@ def test_extension_public_paths_track_auth_middleware_public_paths():
         ),
         ("/api/v1/auth/me", "GET", "/api/v1/auth/me", "POST"),
         ("/api/v1/auth/me", "GET", "/api/v1/auth/me/", "POST"),
+        ("/api/ci-diagnoses", "GET", "/api/ci-diagnoses", "POST"),
+        ("/api/ci-diagnoses/model", "GET", "/api/ci-diagnoses/model", "PUT"),
+        ("/api/ci-diagnoses/{task_id}/events", "GET", "/api/ci-diagnoses/{task_id}/events", "POST"),
     ],
 )
 def test_extension_routes_cannot_claim_reserved_exact_paths_with_a_disjoint_method(
@@ -743,6 +746,10 @@ def test_extension_routes_cannot_claim_reserved_exact_paths_with_a_disjoint_meth
         "/api/v1/auth/me",
         "/api/v1/auth/me/",
         "/api/v1/auth/me//",
+        "/api/ci-diagnoses",
+        "/api/ci-diagnoses/model",
+        "/api/ci-diagnoses/model/analyze",
+        "/api/ci-diagnoses/github",
     ],
 )
 def test_extension_csrf_reserved_exact_paths_track_csrf_exemption(
