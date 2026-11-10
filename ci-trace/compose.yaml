@@ -1,0 +1,38 @@
+name: ci-trace
+
+services:
+  api:
+    build:
+      context: .
+      target: api
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+    init: true
+    environment:
+      CI_TRACE_ORIGIN: http://127.0.0.1:${CI_TRACE_WEB_PORT:-3300}
+      CI_TRACE_GITHUB_TOKEN: ${CI_TRACE_GITHUB_TOKEN:-}
+      CI_TRACE_CREDENTIALS_KEY: ${CI_TRACE_CREDENTIALS_KEY:-}
+      CI_TRACE_CREDENTIALS_KEY_FILE: /data/credentials.key
+      CI_TRACE_MODEL_BASE_URLS: ${CI_TRACE_MODEL_BASE_URLS:-}
+      CI_TRACE_RUNNER_URL: ${CI_TRACE_RUNNER_URL:-}
+      CI_TRACE_RUNNER_TOKEN: ${CI_TRACE_RUNNER_TOKEN:-}
+    volumes:
+      - trace-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8001/health', timeout=2).close()"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+  web:
+    build:
+      context: .
+      target: web
+    init: true
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${CI_TRACE_WEB_PORT:-3300}:3000"
+
+volumes:
+  trace-data:

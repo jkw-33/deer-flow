@@ -1,0 +1,14 @@
+**
+!requirements.txt
+!api/
+!api/*.py
+!web/
+!web/package.json
+!web/package-lock.json
+!web/next.config.mjs
+!web/postcss.config.mjs
+!web/tsconfig.json
+!web/public/
+!web/public/**
+!web/src/
+!web/src/**
