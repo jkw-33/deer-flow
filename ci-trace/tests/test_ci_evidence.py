@@ -15,6 +15,46 @@ from api.ci_evidence import (
 SHA = "5d62d6f284c4f45171c84198796ae550b8292a09"
 
 
+def test_metadata_retries_transport_and_gateway_errors(monkeypatch):
+    replies = iter([httpx.ConnectError("temporary failure"), httpx.Response(502), httpx.Response(200, json={"run_attempt": 1})])
+    delays = []
+
+    def respond(request):
+        reply = next(replies)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+    async def sleep(delay):
+        delays.append(delay)
+
+    monkeypatch.setattr("api.ci_evidence.asyncio.sleep", sleep)
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            return await GitHubCIEvidence(client)._get("/test")
+
+    assert asyncio.run(run()) == {"run_attempt": 1}
+    assert delays == [0.5, 1.0]
+
+
+@pytest.mark.parametrize(("status", "headers"), [(403, {"x-ratelimit-remaining": "0"}), (429, {}), (503, {"retry-after": "10"})])
+def test_metadata_does_not_retry_rate_limit_or_retry_after(status, headers):
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(status, headers=headers)
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            await GitHubCIEvidence(client)._get("/test")
+
+    with pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(run())
+    assert len(requests) == 1
+
+
 def test_job_event_keeps_ordered_markers_and_http_statuses():
     http_504 = "curl: (22) The requested URL returned error: 504"
     http_403 = "curl: (22) The requested URL returned error: 403"

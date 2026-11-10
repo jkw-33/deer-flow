@@ -1,5 +1,7 @@
 """Read evidence for an exact GitHub Actions run attempt."""
 
+import asyncio
+import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -10,6 +12,7 @@ import httpx
 from api.ci_advice import repair_advice
 
 API_ROOT = "https://api.github.com"
+logger = logging.getLogger(__name__)
 MAX_LOG_BYTES = 4 * 1024 * 1024
 RUN_PATH = re.compile(r"/([A-Za-z0-9-]+)/([A-Za-z0-9_.-]+)/actions/runs/([1-9][0-9]{0,19})(?:/attempts/([1-9][0-9]{0,8}))?/?")
 CHECKOUT_SHA = re.compile(r"(?:^|\n)(?:\S+Z )?([0-9a-f]{40})\r?(?=\n|$)")
@@ -82,9 +85,22 @@ class GitHubCIEvidence:
             self.headers["Authorization"] = f"Bearer {token}"
 
     async def _get(self, path: str) -> dict:
-        response = await self.client.get(API_ROOT + path, headers=self.headers, follow_redirects=False)
-        response.raise_for_status()
-        return response.json()
+        for delay in (0.5, 1.0, None):
+            try:
+                response = await self.client.get(API_ROOT + path, headers=self.headers, follow_redirects=False)
+                response.raise_for_status()
+                return response.json()
+            except (httpx.NetworkError, httpx.TimeoutException, httpx.RemoteProtocolError) as error:
+                if delay is None:
+                    raise
+                logger.warning("Retrying GitHub metadata after %s", type(error).__name__)
+            except httpx.HTTPStatusError as error:
+                response = error.response
+                if delay is None or response.status_code not in {502, 503, 504} or "retry-after" in response.headers or response.headers.get("x-ratelimit-remaining") == "0":
+                    raise
+                logger.warning("Retrying GitHub metadata after HTTP %s", response.status_code)
+            await asyncio.sleep(delay)
+        raise AssertionError("Retry schedule did not terminate")
 
     async def collect(
         self,
