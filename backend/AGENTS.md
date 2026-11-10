@@ -34,14 +34,18 @@ live in `tests/`, `docs/`, and `scripts/benchmark/` respectively. Module-local
 CI Trace evidence collection lives in `app/gateway/ci_evidence.py`. Pin the
 GitHub Actions attempt before reading jobs. Treat checkout hashes parsed from
 logs as evidence candidates, and fetch source at an explicitly selected
-commit. Keep job metadata when logs are unavailable, and never send GitHub
+commit. Build persisted Job events with `job_event_data`. Keep job metadata
+when logs are unavailable, and never send GitHub
 credentials to the redirected log host.
-The live CI Trace routes in `app/gateway/routers/ci_diagnoses.py` are
-anonymous-session-scoped and currently support public repositories. The
-submission endpoint checks browser origin before issuing its session cookie.
+The live CI Trace routes in `app/gateway/routers/ci_diagnoses.py` are scoped
+to a browser session. Public diagnoses work without signing in. Private
+diagnoses also require GitHub App authorization. The submission endpoint
+checks browser origin before issuing its session cookie.
 The local SQLite
 store preserves event cursors and worker leases. Do not serialize raw job
-logs or a GitHub token into the task payload or SSE.
+logs or a GitHub token into the task payload or SSE. Keep download formatting
+and the shared snapshot/SSE event projection in `app/gateway/ci_artifacts.py`.
+The router owns session and repository authorization for every download.
 
 ### Documentation Update Policy
 Every code change must keep docs accurate and current: update `README.md` for

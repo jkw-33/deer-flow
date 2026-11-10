@@ -7,6 +7,8 @@ from urllib.parse import quote, urlsplit
 
 import httpx
 
+from app.gateway.ci_advice import repair_advice
+
 API_ROOT = "https://api.github.com"
 MAX_LOG_BYTES = 4 * 1024 * 1024
 RUN_PATH = re.compile(r"/([A-Za-z0-9-]+)/([A-Za-z0-9_.-]+)/actions/runs/([1-9][0-9]{0,19})(?:/attempts/([1-9][0-9]{0,8}))?/?")
@@ -219,3 +221,27 @@ def annotation_evidence(annotations, job_id):
             }
         )
     return result
+
+
+_LOG_MARKER = re.compile(
+    r"curl: \(22\) The requested URL returned error: ([45][0-9]{2})"
+    r"|ERR_PNPM_OUTDATED_LOCKFILE|\bTS[0-9]{4}\b|\bMODULE_NOT_FOUND\b"
+)
+
+
+def job_event_data(evidence: JobEvidence, *, private: bool) -> dict:
+    job = evidence.job
+    job_id = int(job["id"])
+    markers = list(_LOG_MARKER.finditer(evidence.log or ""))
+    return {
+        "job_id": job_id,
+        "name": job.get("name", "")[:200],
+        "steps": [step["name"][:200] for step in job.get("steps", []) if step.get("conclusion") == "failure"][:20],
+        "log_state": evidence.log_state,
+        "checkout_shas": evidence.checkout_shas[:10],
+        "annotation_count": len(evidence.annotations),
+        "annotations": [] if private else annotation_evidence(evidence.annotations, job_id),
+        "advice": repair_advice(evidence.log),
+        "log_excerpt": [] if private else list(dict.fromkeys(match[0] for match in markers))[:12],
+        "http_errors": sorted({match[1] for match in markers if match[1]}),
+    }

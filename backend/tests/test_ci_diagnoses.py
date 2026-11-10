@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from app.gateway.auth_middleware import AuthMiddleware
 from app.gateway.ci_advice import repair_advice
+from app.gateway.ci_artifacts import public_task
 from app.gateway.ci_evidence import parse_run_url
 from app.gateway.csrf_middleware import CSRFMiddleware
 from app.gateway.github import app_auth
@@ -53,9 +54,9 @@ def test_model_key_is_encrypted_session_scoped_and_clearable(tmp_path, monkeypat
     async def reply(provider, model, key, messages, *, base_url=None):
         assert (provider, model, key) == ("deepseek", "test-model", "test-key")
         assert base_url is None
-        return "OK"
+        return {"content": "OK"}
 
-    monkeypatch.setattr(ci_diagnoses, "_ask_model", reply)
+    monkeypatch.setattr(ci_diagnoses, "_model_message", reply)
     app = FastAPI()
     app.include_router(ci_diagnoses.router)
     path = "/api/ci-diagnoses/model"
@@ -346,8 +347,9 @@ def test_analysis_claim_is_session_scoped_and_persists_terminal_event(tmp_path, 
     assert not ci_diagnoses._analysis_event(task_id, "owner", {"kind": "error"})
     saved, _ = ci_diagnoses._read(task_id, "owner")
     assert [event["kind"] for event in saved["analysis"]] == ["started", "result"]
-    assert ci_diagnoses._public_task(saved)["analysis_started"]
-    assert "analysis" not in ci_diagnoses._public_task(saved)
+    snapshot = public_task(saved)
+    assert snapshot["analysis_started"]
+    assert "analysis" not in snapshot
 
 
 def test_retry_claim_preserves_history_and_rejects_duplicate_retry(tmp_path, monkeypatch):

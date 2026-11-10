@@ -22,8 +22,8 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.gateway.ci_actions_runner import actions_verify
 from app.gateway.ci_actions_runner import configured as actions_configured
-from app.gateway.ci_advice import repair_advice
-from app.gateway.ci_evidence import GitHubCIEvidence, JobEvidence, PrivateRunError, annotation_evidence, parse_run_url
+from app.gateway.ci_artifacts import public_event, public_task, render_artifact
+from app.gateway.ci_evidence import GitHubCIEvidence, JobEvidence, PrivateRunError, job_event_data, parse_run_url
 from app.gateway.ci_investigation import investigate
 from app.gateway.ci_runner_client import runner_check
 from app.gateway.ci_verification import MAX_SCRIPT_BYTES, candidate, node_target, verify
@@ -175,19 +175,6 @@ async def _verify_private_access(task: dict, owner: str):
         raise HTTPException(404, "Diagnosis not found") from error
 
 
-def _public_event(event: dict) -> dict:
-    return {key: value for key, value in event.items() if key != "patch"}
-
-
-def _public_task(task: dict) -> dict:
-    return {
-        **{key: value for key, value in task.items() if key not in {"github_binding", "events", "analysis"}},
-        "private": bool(task.get("github_binding")),
-        "analysis_started": bool(task.get("analysis")),
-        "events": [_public_event(event) for event in task["events"]],
-    }
-
-
 def _model_endpoint(provider: str, base_url: str | None = None) -> str:
     if provider != "custom":
         if base_url:
@@ -223,11 +210,6 @@ async def _model_message(provider: str, model: str, key: str, messages: list[dic
             return {"content": text.replace(key, "[redacted]")[:8000]}
     except (httpx.HTTPError, ValueError, TypeError, KeyError, IndexError, AttributeError) as error:
         raise HTTPException(502, "Model provider could not complete the request") from error
-
-
-async def _ask_model(provider: str, model: str, key: str, messages: list[dict], *, base_url: str | None = None) -> str:
-    message = await _model_message(provider, model, key, messages, base_url=base_url)
-    return message["content"]
 
 
 def _create(owner, reference, github_binding=None, deep=False):
@@ -332,37 +314,15 @@ async def _run(task_id: str, owner: str):
         await emit("attempt", attempt=attempt, conclusion=run.get("conclusion"))
 
     async def on_job(evidence: JobEvidence):
-        job = evidence.job
-        await emit(
-            "job",
-            job_id=int(job["id"]),
-            name=job.get("name", "")[:200],
-            steps=[step["name"][:200] for step in job.get("steps", []) if step.get("conclusion") == "failure"][:20],
-            log_state=evidence.log_state,
-            checkout_shas=evidence.checkout_shas[:10],
-            annotation_count=len(evidence.annotations),
-            annotations=annotation_evidence(evidence.annotations, int(job["id"])) if not task.get("github_binding") else [],
-            advice=repair_advice(evidence.log),
-            log_excerpt=list(
-                dict.fromkeys(
-                    re.findall(
-                        r"curl: \(22\) The requested URL returned error: [45][0-9]{2}|ERR_PNPM_OUTDATED_LOCKFILE|\bTS[0-9]{4}\b|\bMODULE_NOT_FOUND\b",
-                        evidence.log or "",
-                    )
-                )
-            )[:12]
-            if not task.get("github_binding")
-            else [],
-            http_errors=sorted(set(re.findall(r"curl: \(22\) The requested URL returned error: ([45][0-9]{2})", evidence.log or ""))),
-        )
+        await emit("job", **job_event_data(evidence, private=private))
 
-    use_actions = not task.get("github_binding") and actions_configured(task["repository"])
+    private = bool(task.get("github_binding"))
+    use_actions = not private and actions_configured(task["repository"])
     try:
         async with asyncio.timeout(430 if use_actions else 148), httpx.AsyncClient(timeout=12) as client:
-            async with asyncio.timeout(120 if task.get("github_binding") or not os.getenv("CI_TRACE_RUNNER_URL") else 118):
+            async with asyncio.timeout(120 if private or not os.getenv("CI_TRACE_RUNNER_URL") else 118):
                 reference = parse_run_url(url)
                 token = None
-                private = bool(task.get("github_binding"))
                 if private:
                     token = await _private_token(task, owner)
                 elif os.getenv("GITHUB_APP_ID"):
@@ -426,9 +386,7 @@ async def _run(task_id: str, owner: str):
                 await _start_analysis(task_id, owner)
             except HTTPException:
                 pass
-    except PrivateRunError:
-        await emit("failed", reason="repository_unavailable")
-    except HTTPException:
+    except (PrivateRunError, HTTPException):
         await emit("failed", reason="repository_unavailable")
     except GitHubAppAuthError:
         await emit("failed", reason="github_app_configuration")
@@ -570,7 +528,7 @@ async def configure_model(body: ConfigureModel, request: Request, response: Resp
     model, key = body.model.strip(), body.api_key.get_secret_value().strip()
     if not model or not key or len(key) > 512 or not key.isascii() or not key.isprintable():
         raise HTTPException(422, "Invalid model or API key")
-    await _ask_model(body.provider, model, key, [{"role": "user", "content": "Reply with OK."}], base_url=body.base_url)
+    await _model_message(body.provider, model, key, [{"role": "user", "content": "Reply with OK."}], base_url=body.base_url)
     token = _session_token(request) or secrets.token_urlsafe(32)
     try:
         credential = json.dumps({"key": key, "base_url": body.base_url}) if body.provider == "custom" else key
@@ -731,7 +689,7 @@ async def create_diagnosis(body: CreateDiagnosis, request: Request, response: Re
     task = await asyncio.to_thread(_create, owner, reference, binding, body.deep)
     _set_session_cookie(request, response, token)
     background.add_task(_run, task["id"], owner)
-    return _public_task(task)
+    return public_task(task)
 
 
 @router.get("/{task_id}")
@@ -742,7 +700,7 @@ async def diagnosis_snapshot(task_id: UUID, request: Request, response: Response
     if task["status"] not in TERMINAL and lease_until <= time.time():
         background.add_task(_run, str(task_id), owner)
     response.headers["Cache-Control"] = "no-store"
-    return _public_task(task)
+    return public_task(task)
 
 
 @router.get("/{task_id}/events")
@@ -769,7 +727,7 @@ async def diagnosis_events(task_id: UUID, request: Request, after: int = 0):
                 return
             for event in task["events"][cursor:]:
                 cursor = event["seq"]
-                yield {"event": "diagnosis", "id": str(cursor), "data": json.dumps(_public_event(event))}
+                yield {"event": "diagnosis", "id": str(cursor), "data": json.dumps(public_event(event))}
             if task["status"] in TERMINAL:
                 return
             if lease_until and lease_until < time.time():
@@ -785,46 +743,8 @@ async def diagnosis_artifact(task_id: UUID, artifact: Literal["report.txt", "rep
     owner = _require_owner(request)
     task, _ = await asyncio.to_thread(_read, str(task_id), owner)
     await _verify_private_access(task, owner)
-    event = next((item for item in reversed(task["events"]) if item["kind"] == "verification"), None)
-    if artifact == "model-trace.json":
-        if not task.get("analysis"):
-            raise HTTPException(404, "Artifact not found")
-        content = (
-            json.dumps(
-                {"schema_version": 1, "scope": "model_analysis", "diagnosis_id": task["id"], "events": task["analysis"]},
-                ensure_ascii=False,
-                indent=2,
-            )
-            + "\n"
-        )
-    elif artifact == "trace.json":
-        public = _public_task(task)
-        content = json.dumps({"schema_version": 1, "scope": "diagnosis", **public}, ensure_ascii=False, indent=2) + "\n"
-    elif artifact == "report.txt":
-        if task["status"] != "completed":
-            raise HTTPException(404, "Artifact not found")
-        lines = [f"{task['url']} (attempt {task['attempt']})"]
-        attempt = next((item for item in task["events"] if item["kind"] == "attempt"), {})
-        lines.append(f"CI conclusion: {attempt.get('conclusion') or 'unknown'}")
-        jobs = [item for item in task["events"] if item["kind"] == "job"]
-        lines.append(f"Failed jobs: {len(jobs)}")
-        for job in jobs:
-            lines.extend(("", f"{job['name']} (job {job['job_id']})", f"Log evidence: {job['log_state']}"))
-            lines.extend(f"Failed step: {step}" for step in job.get("steps", []))
-            lines.extend(f"Checkout candidate: {sha}" for sha in job.get("checkout_shas", []))
-            if job.get("annotation_count"):
-                lines.append(f"Check annotations: {job['annotation_count']}")
-            lines.extend(f"{item['id']} {item['path']}:{item['line']} {item['message']}" for item in job.get("annotations", []))
-            lines.extend(f"HTTP error: {status}" for status in job.get("http_errors", []))
-            lines.extend(f"Suggested next step: {advice}" for advice in job.get("advice", []))
-        if event:
-            lines.extend(("", f"{event['sha']}:{event['path']}", f"CRLF check ({event.get('mode', 'bash_syntax')}): {event['status']}", _verification_log(event)))
-        content = "\n".join(lines) + "\n"
-    elif artifact == "repair.diff" and event and "patch" in event:
-        content = event["patch"]
-    elif artifact == "verification.log" and event:
-        content = _verification_log(event)
-    else:
+    content = render_artifact(task, artifact)
+    if content is None:
         raise HTTPException(404, "Artifact not found")
     return Response(
         content,
@@ -834,17 +754,4 @@ async def diagnosis_artifact(task_id: UUID, artifact: Literal["report.txt", "rep
             "Content-Disposition": f'attachment; filename="{artifact}"',
             "X-Content-Type-Options": "nosniff",
         },
-    )
-
-
-def _verification_log(event):
-    node_lookup = event.get("mode") == "node_lookup"
-    command = "/bin/bash --noprofile --norc -e -s (Node lookup with an empty module fixture)" if node_lookup else "/bin/bash --noprofile --norc -n -s"
-    symptom = f"Original missing module with trailing CR: {event.get('missing_module', 'not recorded')}" if node_lookup else f"Original syntax error line: {event.get('error_line', 'not recorded')}"
-    return (
-        f"Check: Linux container {command}\n"
-        f"Original source SHA-256: {event.get('source_sha256', 'not recorded')}\n"
-        f"Original exit: {event.get('baseline', 'not recorded')}\n"
-        f"{symptom}\n"
-        f"LF-only rerun exit: {event.get('rerun', 'not recorded')}\n"
     )

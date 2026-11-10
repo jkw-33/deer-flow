@@ -3,9 +3,26 @@ import asyncio
 import httpx
 import pytest
 
-from app.gateway.ci_evidence import GitHubCIEvidence, checkout_shas, parse_run_url
+from app.gateway.ci_evidence import GitHubCIEvidence, JobEvidence, checkout_shas, job_event_data, parse_run_url
 
 SHA = "5d62d6f284c4f45171c84198796ae550b8292a09"
+
+
+def test_job_event_keeps_ordered_public_markers_and_private_http_statuses():
+    http_504 = "curl: (22) The requested URL returned error: 504"
+    http_403 = "curl: (22) The requested URL returned error: 403"
+    evidence = JobEvidence(
+        job={"id": 42},
+        log="\n".join(("prefixTS1234", http_504, "error TS1234:", http_504, "MODULE_NOT_FOUND", http_403)),
+        log_state="available",
+        checkout_shas=(),
+    )
+
+    public = job_event_data(evidence, private=False)
+    private = job_event_data(evidence, private=True)
+    assert public["log_excerpt"] == [http_504, "TS1234", "MODULE_NOT_FOUND", http_403]
+    assert private["log_excerpt"] == []
+    assert public["http_errors"] == private["http_errors"] == ["403", "504"]
 
 
 @pytest.mark.parametrize(

@@ -84,8 +84,9 @@ service. Custom Base URLs must match an entry in the comma-separated
 `CI_TRACE_MODEL_BASE_URLS` server environment variable, for example
 `https://gateway.example/v1`. Use a trusted endpoint reachable from the
 Gateway and omit `/chat/completions`. Rule-based advice works without a key.
-Model advice is an explicit action on a completed public task and sends only
-the job summary to the selected provider.
+Deep analysis can start automatically after public evidence collection or
+be requested on the result page. It sends Job-scoped structured evidence
+and bounded error markers to the selected provider.
 
 For private repositories, configure `CI_TRACE_GITHUB_CLIENT_ID`,
 `CI_TRACE_GITHUB_CLIENT_SECRET`, and `CI_TRACE_GITHUB_CALLBACK_URL` for the
